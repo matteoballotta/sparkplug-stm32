@@ -17,6 +17,8 @@
   */
 #include <string.h>
 #include <stdbool.h>
+#include <stdio.h>
+#include "secrets.h"
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
@@ -61,34 +63,30 @@ static void MX_USART2_UART_Init(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
-uint8_t tx_buff[] = "AT\r\n";
-uint8_t rx_buff[256];
-
-volatile bool esp_done = false;
+uint8_t tx_buffer[] = "AT\r\n";
+uint8_t rx_buffer[128];
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
     if (huart->Instance == USART1) {
-    	if(strstr((char *)rx_buff, "OK")) {
-    		esp_done = true;
-    	}
-        // Process received data in rx_buff
-
-        __NOP();
-        memset(rx_buff, (uint8_t)'Z', sizeof(rx_buff));
-        HAL_UART_Receive_IT(&huart1, rx_buff, sizeof(rx_buff));
+        memset(rx_buffer, 0, sizeof(rx_buffer));
+        HAL_UART_Receive_IT(&huart1, rx_buffer, sizeof(rx_buffer));
     }
 }
 
-void wait_for_esp(uint32_t timeout) {
+bool wait_for_response(uint32_t timeout) {
 	uint32_t start = HAL_GetTick();
-	esp_done = false;
-
 	while((HAL_GetTick() - start) < timeout) {
-		if(esp_done) {
-			break;
+		size_t length = strlen((char *)rx_buffer);
+		char last = rx_buffer[length - 1];
+		if(last == '\n') {
+			HAL_UART_Transmit(&huart2, rx_buffer, strlen((char *)rx_buffer), HAL_MAX_DELAY);
+			// memset(rx_buffer, 0, sizeof(rx_buffer));
+			return true;
 		}
 	}
-
+	HAL_UART_Transmit(&huart2, rx_buffer, strlen((char *)rx_buffer), HAL_MAX_DELAY);
+	// memset(rx_buffer, 0, sizeof(rx_buffer));
+	return false;
 }
 
 /* USER CODE END 0 */
@@ -126,36 +124,37 @@ int main(void)
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
 
-  memset(rx_buff, (uint8_t)'Z', sizeof(rx_buff));
+  memset(rx_buffer, 0, sizeof(rx_buffer));
 
   HAL_Delay(1000);
 
 //  const uint8_t disable_echo[] = "ATE0\r\n";
 //  HAL_UART_Transmit(&huart1, disable_echo, sizeof(disable_echo), HAL_MAX_DELAY);
+//  HAL_Delay(500);
 
-
-  HAL_Delay(500);
-
-  HAL_UART_Receive_IT(&huart1, rx_buff, sizeof(rx_buff));
+  HAL_UART_Receive_IT(&huart1, rx_buffer, sizeof(rx_buffer));
 
   const uint8_t wifi_mode_cmd[] = "AT+CWMODE=1\r\n";
   HAL_UART_Transmit(&huart1, wifi_mode_cmd, strlen((char *)wifi_mode_cmd), HAL_MAX_DELAY);
   HAL_Delay(1000);
-  __NOP();
+  //  wait_for_response(HAL_MAX_DELAY);
 
-  const uint8_t wifi_conn_cmd[] = "AT+CWJAP=\"SSID\",\"PASS\"\r\n";
+  uint8_t wifi_conn_cmd[64];
+  memset(wifi_conn_cmd, 0, sizeof(wifi_conn_cmd));
+  const uint8_t cmd[] = "AT+CWJAP=\"%s\",\"%s\"\r\n";
+
+  size_t size = sizeof(cmd) + sizeof(SSID) + sizeof(PASS);
+  if(size < 64) {
+	  snprintf(wifi_conn_cmd, sizeof(wifi_conn_cmd), cmd, SSID, PASS);
+  }
   HAL_UART_Transmit(&huart1, wifi_conn_cmd, strlen((char *)wifi_conn_cmd), HAL_MAX_DELAY);
   HAL_Delay(10000);
-  __NOP();
+  //  wait_for_response(HAL_MAX_DELAY);
 
   const uint8_t get_ip_cmd[] = "AT+CIFSR\r\n";
   HAL_UART_Transmit(&huart1, get_ip_cmd, strlen((char *)get_ip_cmd), HAL_MAX_DELAY);
-  HAL_Delay(1000);
-  __NOP();
-
-//  HAL_Delay(1000);
-//  HAL_UART_Transmit(&huart1, tx_buff, strlen((char *)tx_buff), HAL_MAX_DELAY);
-
+  HAL_Delay(5000);
+  //  wait_for_response(HAL_MAX_DELAY);
 
   /* USER CODE END 2 */
 
@@ -163,12 +162,6 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-
-
-//	  HAL_Delay(500);
-
-
-
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */

@@ -21,3 +21,5 @@
 .DS_Store
 Thumbs.db
 
+# Secrets file
+secrets.h
